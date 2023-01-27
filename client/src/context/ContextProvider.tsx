@@ -1,5 +1,5 @@
 import React, { PropsWithChildren } from "react"
-import SocketProvider from "./SocketContext"
+import { SocketProvider } from "./SocketContext"
 
 interface Props extends PropsWithChildren {
   contexts: any[]

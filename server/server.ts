@@ -1,8 +1,9 @@
-import * as express from "express"
+const express = require("express")
+const http = require("http")
+const app = express()
 import { Socket } from "socket.io"
 const cors = require("cors")
 
-const app = express()
 const server = require("http").createServer(app)
 
 const io = require("socket.io")(server, {
@@ -14,9 +15,9 @@ const io = require("socket.io")(server, {
 
 app.use(cors())
 
-const PORT = process.env.PORT || 5000
+const PORT = process.env.PORT || 6868
 
-app.get("/", (req: express.Request, res: express.Response) => {
+app.get("/", (req, res) => {
   res.send("Running")
 })
 

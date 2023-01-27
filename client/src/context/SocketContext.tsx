@@ -1,24 +1,27 @@
-import React from "react"
+import React, { PropsWithChildren } from "react"
 import Peer from "simple-peer"
 import { io } from "socket.io-client"
 
-interface ICall {
-  isReceivingCall: boolean
-  from?: string
+export interface ISocketContext {
+  callAccepted: boolean
+  receivingCall: boolean
+  myVideo: React.LegacyRef<HTMLVideoElement> | undefined
+  userVideo: React.LegacyRef<HTMLVideoElement> | undefined
+  stream: MediaStream | undefined
   name: string
-  signal: string
+  setName: React.Dispatch<React.SetStateAction<string>>
+  callEnded: boolean
+  me: string
+  callUser: (id: string) => void
+  leaveCall: () => void
+  answerCall: () => void
+  idToCall: string
+  setIdToCall: React.Dispatch<React.SetStateAction<string>>
 }
 
-const defaultCallState = {
-  isReceivingCall: false,
-  from: "",
-  name: "",
-  signal: "",
-}
-
-const SocketContext = React.createContext<any>({
-  call: defaultCallState,
+const SocketContext = React.createContext<ISocketContext>({
   callAccepted: false,
+  receivingCall: false,
   myVideo: null,
   userVideo: null,
   stream: undefined,
@@ -26,29 +29,31 @@ const SocketContext = React.createContext<any>({
   setName: () => {},
   callEnded: false,
   me: "",
-  callUser: () => {},
+  callUser: (id: string) => {},
   leaveCall: () => {},
   answerCall: () => {},
+  idToCall: "",
+  setIdToCall: () => {},
 })
 
-const socket = io("http://localhost:5000")
+const socket = io("http://localhost:6868")
 
-const SocketProvider = ({ children }: any) => {
+const SocketProvider: React.FC<PropsWithChildren> = ({ children }) => {
   // TODO: convert to useReducer
   const [callAccepted, setCallAccepted] = React.useState<boolean>(false)
   const [callEnded, setCallEnded] = React.useState<boolean>(false)
-  const [stream, setStream] = React.useState<MediaStream | undefined>()
+  const [stream, setStream] = React.useState<any>()
   const [name, setName] = React.useState<string>("")
-  const [call, setCall] = React.useState<ICall>(defaultCallState)
   const [me, setMe] = React.useState<string>("")
+  const [idToCall, setIdToCall] = React.useState<string>("")
 
-  const myVideo = React.useRef<Record<"srcObject", MediaStream | null>>({
-    srcObject: null,
-  })
-  const userVideo = React.useRef<Record<"srcObject", MediaStream | null>>({
-    srcObject: null,
-  })
+  const myVideo = React.useRef<any>({ srcObject: null })
+  const userVideo = React.useRef<any>()
   const connectionRef = React.useRef<Peer.Instance | null>(null)
+
+  const [receivingCall, setReceivingCall] = React.useState<boolean>(false)
+  const [caller, setCaller] = React.useState<string>("")
+  const [callerSignal, setCallerSignal] = React.useState<any>()
 
   React.useEffect(() => {
     navigator.mediaDevices
@@ -56,54 +61,56 @@ const SocketProvider = ({ children }: any) => {
       .then((currentStream: MediaStream) => {
         setStream(currentStream)
 
-        myVideo.current.srcObject = currentStream
+        myVideo.current!.srcObject = currentStream
       })
 
     socket.on("me", (id) => setMe(id))
 
-    socket.on("callUser", ({ from, name: callerName, signal }) => {
-      setCall({ isReceivingCall: true, from, name: callerName, signal })
+    socket.on("callUser", (data) => {
+      setReceivingCall(true)
+      setCaller(data.from)
+      setName(data.name)
+      setCallerSignal(data.signal)
     })
   }, [callEnded])
 
   const answerCall = () => {
     setCallAccepted(true)
-    setCallEnded(false)
-
-    const peer = new Peer({ initiator: false, trickle: false, stream })
-
+    const peer = new Peer({
+      initiator: false,
+      trickle: false,
+      stream: stream,
+    })
     peer.on("signal", (data) => {
-      socket.emit("answerCall", { signal: data, to: call.from })
+      socket.emit("answerCall", { signal: data, to: caller })
+    })
+    peer.on("stream", (stream) => {
+      userVideo.current.srcObject = stream
     })
 
-    peer.on("stream", (currentStream) => {
-      userVideo.current.srcObject = currentStream
-    })
-
-    peer.signal(call.signal)
-
+    peer.signal(callerSignal)
     connectionRef.current = peer
   }
 
   const callUser = (id: string) => {
-    const peer = new Peer({ initiator: true, trickle: false, stream })
-
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream: stream,
+    })
     peer.on("signal", (data) => {
       socket.emit("callUser", {
         userToCall: id,
         signalData: data,
         from: me,
-        name,
+        name: name,
       })
     })
-
-    peer.on("stream", (currentStream) => {
-      userVideo.current.srcObject = currentStream
+    peer.on("stream", (stream) => {
+      userVideo.current.srcObject = stream
     })
-
     socket.on("callAccepted", (signal) => {
       setCallAccepted(true)
-
       peer.signal(signal)
     })
 
@@ -116,15 +123,17 @@ const SocketProvider = ({ children }: any) => {
     socket.disconnect()
     setStream(undefined)
     setMe("")
-    setCall(defaultCallState)
     setCallAccepted(false)
     setCallEnded(true)
+    setReceivingCall(true)
+    setCaller("")
+    setName("")
+    setCallerSignal(null)
   }
 
   return (
     <SocketContext.Provider
       value={{
-        call,
         callAccepted,
         myVideo,
         userVideo,
@@ -136,6 +145,9 @@ const SocketProvider = ({ children }: any) => {
         callUser,
         leaveCall,
         answerCall,
+        idToCall,
+        setIdToCall,
+        receivingCall,
       }}
     >
       {children}
@@ -143,4 +155,4 @@ const SocketProvider = ({ children }: any) => {
   )
 }
 
-export default SocketProvider
+export { SocketProvider, SocketContext }
